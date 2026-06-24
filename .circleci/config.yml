@@ -1,71 +1,47 @@
-version: 2.1
-
 jobs:
-  sast-bandit:
-    docker:
-      - image: cimg/python:3.11
-    steps:
-      - checkout
-      - run: pip install bandit
-      - run:
-          name: Run Bandit SAST scan
-          command: bandit -r . -f txt -o bandit-report.txt || true
-      - store_artifacts:
-          path: bandit-report.txt
-
-  secrets-gitleaks:
-    docker:
-      - image: cimg/base:stable
-    steps:
-      - checkout
-      - run:
-          name: Install Gitleaks
-          command: |
-            wget -qO - https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz | tar -xz
-            sudo mv gitleaks /usr/local/bin/
-      - run:
-          name: Scan git history for secrets
-          command: gitleaks detect --source . --report-path gitleaks-report.json --exit-code 0
-      - store_artifacts:
-          path: gitleaks-report.json
-
-  sca-safety:
-    docker:
-      - image: cimg/python:3.11
-    steps:
-      - checkout
-      - run: pip install safety
-      - run:
-          name: Scan dependencies for known CVEs
-          command: safety check -r requirements.txt --output text > safety-report.txt || true
-      - store_artifacts:
-          path: safety-report.txt
-
   build:
     docker:
-      - image: cimg/python:3.11
+      - image: python:3.6                   # similar to "image" in GitLab
     steps:
       - checkout
-      - run: echo "Build passes only after security scans complete"
+      - run: |                              # similar to "script" in GitLab
+          pip install -r requirements.txt
+          python manage.py check
+
+  test:
+    docker:
+      - image: python:3.6
+    steps:
+      - checkout
+      - run: |
+          pip install -r requirements.txt
+          python manage.py test taskManager
+
+  integration:
+    docker:
+      - image: python:3.6
+    steps:
+      - checkout
+      - run:
+          command: |
+            echo "This is an integration step"
+            exit 1
+
+  prod:
+    docker:
+      - image: python:3.6
+    steps:
+      - checkout
+      - run: echo "This is a deploy step."
 
 workflows:
   version: 2
-  secure-pipeline:
+  django:
     jobs:
-      - sast-bandit:
-          filters:
-            branches:
-              only: main
-      - secrets-gitleaks:
-          filters:
-            branches:
-              only: main
-      - sca-safety:
-          filters:
-            branches:
-              only: main
-      - build:
+      - build
+      - test
+      - integration
+      - prod:
+          type: approval
           requires:
-            - sast-bandit
-            - secrets-gitleaks
-            - sca-safety
+            - integration
